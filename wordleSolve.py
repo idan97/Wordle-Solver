@@ -32,20 +32,26 @@ def convert_to_final_form(word: str) -> str:
 def convert_to_regular_form(word: str) -> str:
     return "".join(FINAL_TO_REGULAR.get(char, char) for char in word)
 
-def preprocess_words(words: List[str]) -> List[str]:
-    return [convert_to_final_form(word) for word in words]
+def save_entropy_scores_to_file(entropy_scores: Dict[str, float], filepath: str):
+    sorted_entropy_scores = dict(sorted(entropy_scores.items(), key=lambda x: x[1], reverse=True)[:5])
+    readable_entropy_scores = {convert_to_final_form(word): score for word, score in sorted_entropy_scores.items()}
+    with open(filepath, 'w', encoding='utf-8') as f:
+        json.dump(readable_entropy_scores, f, ensure_ascii=False, indent=4)
+
+def load_entropy_scores_from_file(filepath: str) -> Dict[str, float]:
+    if os.path.exists(filepath):
+        with open(filepath, 'r', encoding='utf-8') as f:
+            return json.load(f)
+    return {}
 
 # Load data from files using absolute paths
 hebrew_guesses = (load_json(get_absolute_path("data/hebrew_guesses.json"))['words'])
 hebrew_guesses_long = (load_json(get_absolute_path("data/hebrew_guesses_long.json"))['words'])
 hebrew_solutions_meduyeket = (load_json(get_absolute_path("data/hebrew_solutions_meduyeket.json"))['words'])
 
-current_solutions = hebrew_guesses.copy()
-
 def update_entropy_scores(guesses: List[str], solutions: List[str]) -> Dict[str, float]:
     with Pool(cpu_count()) as pool:
         results = list(tqdm(pool.imap(calculate_entropy, [(guess, solutions) for guess in guesses]), total=len(guesses), desc="Calculating entropy scores"))
-    
     entropy_scores = dict(zip(guesses, results))
     return entropy_scores
 
@@ -70,18 +76,29 @@ def calculate_entropy(args) -> float:
 def filter_solutions(solutions: List[str], guess: str, pattern: str) -> List[str]:
     guess = convert_to_regular_form(guess[::-1])  # Reverse the guess and convert to regular form
     filtered_solutions = solutions.copy()
+    pattern_counts = {'0': {}, '1': {}, '2': {}}
 
+    # Count the occurrences of each pattern for each letter
+    for i in range(len(guess)):
+        if guess[i] not in pattern_counts[pattern[i]]:
+            pattern_counts[pattern[i]][guess[i]] = 0
+        pattern_counts[pattern[i]][guess[i]] += 1
+
+    # Filter solutions
     for i in range(len(guess)):
         curr_char = guess[i]
         if pattern[i] == '2':
             filtered_solutions = [solution for solution in filtered_solutions if solution[i] == curr_char]
         elif pattern[i] == '1':
-            filtered_solutions = [solution for solution in filtered_solutions if solution[i] != guess[i] and guess[i] in solution]
+            filtered_solutions = [solution for solution in filtered_solutions if solution[i] != curr_char and solution.count(curr_char) >= pattern_counts['1'][curr_char]]
         elif pattern[i] == '0':
-            filtered_solutions = [solution for solution in filtered_solutions if guess[i] not in solution]
+            filtered_solutions = [
+                solution for solution in filtered_solutions
+                if curr_char not in solution or
+                (solution.count(curr_char) == pattern_counts['2'].get(curr_char, 0) + pattern_counts['1'].get(curr_char, 0))
+            ]
 
     return filtered_solutions
-
 
 def get_pattern(guess: str, solution: str) -> List[int]:
     pattern = [0] * len(guess)
@@ -113,7 +130,8 @@ class WordleSolverGUI:
         # Center the window on the screen
         self.center_window()
 
-        self.current_solutions = hebrew_solutions_meduyeket.copy()
+        self.current_solutions = hebrew_guesses.copy()
+        self.language = hebrew_guesses_long.copy()
 
         # Guess entry
         self.guess_vars = [StringVar() for _ in range(5)]
@@ -140,7 +158,7 @@ class WordleSolverGUI:
         self.top_guesses_label.grid(row=4, columnspan=5, pady=5)
 
         # Initial display of top 5 guesses
-        self.display_top_guesses()
+        self.display_top_guesses(first_time=True)
 
     def center_window(self):
         window_width = 700
@@ -176,7 +194,7 @@ class WordleSolverGUI:
             self.reset_gui()
             return
         
-        self.display_top_guesses()
+        self.display_top_guesses(first_time = False)
         self.reset_gui()
 
     def reset_gui(self):
@@ -187,9 +205,12 @@ class WordleSolverGUI:
         for entry in self.guess_entries:
             entry.config(state='normal')
 
-    def display_top_guesses(self):
-        entropy_scores = update_entropy_scores(hebrew_guesses, self.current_solutions)
-        sorted_entropy_scores = sorted(entropy_scores.items(), key=lambda x: x[1], reverse=True)
+    def display_top_guesses(self, first_time):
+        if first_time:
+            entropy_scores = load_entropy_scores_from_file(get_absolute_path("data/first_entropy.json"))
+        else:
+            entropy_scores = update_entropy_scores(self.language, self.current_solutions)
+        sorted_entropy_scores = sorted(entropy_scores.items(), key=lambda x: x[1], reverse=True) 
         top_words = "\n".join([f"{convert_to_final_form(word)}: {score:.2f}" for word, score in sorted_entropy_scores[:5]])  # Convert to final form before displaying
         self.top_guesses_label.config(text=f"Top 5 Guesses:\n{top_words}")
 
