@@ -102,7 +102,7 @@ def filter_solutions(solutions: List[str], guess: str, pattern: str) -> List[str
 
 def get_pattern(guess: str, solution: str) -> List[int]:
     pattern = [0] * len(guess)
-    letter_counts = {}
+    letter_counts = {} # dictionary to count the occurrences of each letter in the solution
 
     for letter in solution:
         if letter in letter_counts:
@@ -110,12 +110,12 @@ def get_pattern(guess: str, solution: str) -> List[int]:
         else:
             letter_counts[letter] = 1
 
-    for i in range(len(guess)):
+    for i in range(len(guess)): # check for exact matches
         if guess[i] == solution[i]:
             pattern[i] = 2
             letter_counts[guess[i]] -= 1
 
-    for i in range(len(guess)):
+    for i in range(len(guess)): # check for correct letters in the wrong place
         if guess[i] in letter_counts and letter_counts[guess[i]] > 0 and pattern[i] != 2:
             pattern[i] = 1
             letter_counts[guess[i]] -= 1
@@ -131,7 +131,7 @@ class WordleSolverGUI:
         self.center_window()
 
         self.current_solutions = hebrew_guesses.copy()
-        self.language = hebrew_guesses_long.copy()
+        self.language = hebrew_guesses.copy()
 
         # Guess entry
         self.guess_vars = [StringVar() for _ in range(5)]
